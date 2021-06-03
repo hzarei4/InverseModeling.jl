@@ -3,9 +3,9 @@ using InverseModeling, Plots, DelimitedFiles, DeconvOptim, NDTools
 
 
 d = @__DIR__ ;
-fn1 = d * Base.Filesystem.path_separator * "irf_480nm_smooth.dat";
+fn1 = d * Base.Filesystem.path_separator * "IRF.dat";
 irf = readdlm(fn1, '\t', Float64, '\n', skipstart=1, comment_char='\\');
-fn2 = d * Base.Filesystem.path_separator * "2021-04-14_FAD_400_3_exp_4_Data_0.dat";
+fn2 = d * Base.Filesystem.path_separator * "FAD.dat";
 dat = readdlm(fn2, '\t', Float64, '\n', skipstart=1, comment_char='\\');
 
 fit_start = findfirst(dat[:,2] .> 1e4) - 100
