@@ -1,0 +1,8 @@
+name = "InverseModeling"
+uuid = "ce844058-9528-415d-a63d-06f3dd08b29f"
+authors = ["rheintzmann <heintzmann@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ComponentArrays = "b0b7db55-cfe3-40fc-9ded-d10e2dbeff66"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
