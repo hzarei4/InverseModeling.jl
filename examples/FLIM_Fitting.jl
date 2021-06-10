@@ -1,4 +1,6 @@
 # do some fitting
+# The Anisotropy decay data of this example was kindly provided by Ioanna Gorbunova
+
 using InverseModeling, Plots, DelimitedFiles, DeconvOptim, NDTools
 
 d = dirname(pathof(InverseModeling)) * Base.Filesystem.path_separator * ".." * Base.Filesystem.path_separator  * "examples"* Base.Filesystem.path_separator
