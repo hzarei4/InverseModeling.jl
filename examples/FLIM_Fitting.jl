@@ -1,11 +1,10 @@
 # do some fitting
 using InverseModeling, Plots, DelimitedFiles, DeconvOptim, NDTools
 
-
-d = @__DIR__ ;
-fn1 = d * Base.Filesystem.path_separator * "IRF.dat";
+d = dirname(pathof(InverseModeling)) * Base.Filesystem.path_separator * ".." * Base.Filesystem.path_separator  * "examples"* Base.Filesystem.path_separator
+fn1 = d * "IRF.dat";
 irf = readdlm(fn1, '\t', Float64, '\n', skipstart=1, comment_char='\\');
-fn2 = d * Base.Filesystem.path_separator * "FAD.dat";
+fn2 = d * "FAD.dat";
 dat = readdlm(fn2, '\t', Float64, '\n', skipstart=1, comment_char='\\');
 
 fit_start = findfirst(dat[:,2] .> 1e4) - 100
