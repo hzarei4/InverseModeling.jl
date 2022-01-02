@@ -1,7 +1,7 @@
 module InverseModeling
 using ComponentArrays
 using Optim, Zygote
-export create_forward, Fixed, Positive, loss
+export create_forward, Fixed, Positive, loss, into_mask
 
 struct Fixed{T}
     data::T
@@ -75,8 +75,11 @@ function create_forward(fwd, params, dtype=Float64)
         g(id) = get_val(getindex(params, id), id, fit, fixed_params) 
         return fwd(g)
     end
+    function backward(vals)
+        NamedTuple{keys(vals)}(collect(get_val(vals, id, vals, fixed_params) for id in keys(vals)))
+    end
     
-    return fit_params, fixed_params, forward, get_fit_results
+    return fit_params, fixed_params, forward, backward, get_fit_results
 end
 
 function loss(data, forward, my_norm=gaussian_norm)
@@ -89,6 +92,26 @@ function optimize(loss_fkt, start_vals; iterations=100, optimizer=LBFGS())
     # @time optim_res = Optim.optimize(loss_fkt, g!, start_vals, optimizer, optim_options)
     @time optim_res = Optim.optimize(loss_fkt, start_vals, optimizer, optim_options) # ;  autodiff = :forward
     optim_res
+end
+
+function into_mask(vec::AbstractArray{T, 1}, mymask::AbstractArray{Bool, N}, tmp_data=zeros(eltype(vec),size(mymask))) where {T, N}
+    tmp_data[mymask] = vec
+    return tmp_data
+end
+
+using ChainRulesCore
+# define custom adjoint for into_mask, since mutating arrays is not supported
+function ChainRulesCore.rrule(::typeof(into_mask), vec::AbstractArray{T, 1}, amask::AbstractArray{Bool, M},
+    tmp_data=zeros(eltype(vec), size(amask))) where {T, M}
+    Y = into_mask(vec, amask, tmp_data)
+    function into_mask_pullback(barx)
+        if eltype(vec) <: Complex
+            return NoTangent(), barx[amask], NoTangent(), NoTangent()
+        else
+            return NoTangent(), real(barx[amask]), NoTangent(), NoTangent()
+        end
+    end
+    return Y, into_mask_pullback
 end
 
 function main()
