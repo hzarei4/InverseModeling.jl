@@ -39,7 +39,7 @@ function gauss_start(meas, rel_thresh=0.2)
     mysqr(apos, dat) = abs2.(apos) .* dat 
     pos = idx(size(meas), offset=size(pos).÷2 .+1 .+ μ)
     σ = max.(1.0,sqrt.(tuple_sum(mysqr.(pos, meas.*mymask )) ./ sumpix))
-    return (i0 = i0, σ=[σ...], μ=[μ...], offset=offset) # Fixed()
+    return (i0 = i0, σ=[σ...], μ=[μ...], offset=offset) # Fixed(), Positive
 end
 
 """
@@ -73,7 +73,7 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
     # @show start_params
     scale = start_params[:i0]
     meas = meas ./ scale
-    start_params = (i0 = 1.0, σ=Positive(start_params[:σ]), μ=start_params[:μ], offset=start_params[:offset]./scale)
+    start_params = (i0 = 1.0, σ=start_params[:σ] .* 1.2, μ=start_params[:μ], offset=start_params[:offset]./scale)
     forward, fit_parameters, get_fit_results = gauss_model(size(meas), start_params)
     # res = Optim.optimize(loss(meas, forward), fit_parameters)
     res = optimize_model(loss(meas, forward), fit_parameters, optimizer=optimizer, iterations=iterations)
@@ -84,7 +84,7 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
     #fit_params[:offset] = fit_params[:offset] * scale
     FWHMs = fit_params[:σ] .* sqrt(log(2) *2)*2
     # fit_params=ComponentArray(ComponentArray(fit_params), (FWHMs=FWHMs))
-    fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHMs=FWHMs)
+    fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHM=FWHMs)
     if verbose
         println("FWHMs : $FWHMs, Iterations : $(res.iterations), Norm: $(res.minimum)")
     end

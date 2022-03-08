@@ -34,9 +34,9 @@ get_val(val::Positive, id, fit, non_fit) = abs2.(getindex(fit, id))
 get_val(val, id, fit, non_fit) = getindex(fit, id)
 
 # inverse opterations for the pre-forward model parts
-get_inv_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id)
-get_inv_val(val::Positive, id, fit, non_fit) = sqrt.(getindex(fit, id))
-get_inv_val(val, id, fit, non_fit) = getindex(fit, id)
+# get_inv_val(val::Fixed) = val
+get_inv_val(val::Positive) = sqrt.(val.data)
+get_inv_val(val) = val
 
  # construct a named tuple from a dict
 construct_named_tuple(d) = NamedTuple{Tuple(keys(d))}(values(d))
@@ -65,10 +65,8 @@ function prepare_fit(vals, dtype=Float64)
     for (key, val) in zip(keys(vals), vals)        
         if val isa Fixed
             non_fit_dict[key] = val.data
-        elseif val isa Positive
-            fit_dict[key] = sqrt.(val.data)
         else
-            fit_dict[key] = val
+            fit_dict[key] = get_inv_val(val)
         end
     end
     fit_named_tuple = construct_named_tuple(fit_dict)
