@@ -6,6 +6,7 @@ version = "0.1.0"
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 ComponentArrays = "b0b7db55-cfe3-40fc-9ded-d10e2dbeff66"
+IndexFunArrays = "613c443e-d742-454e-bfc6-1d7f8dd76566"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 NDTools = "98581153-e998-4eef-8d0d-5ec2c052313d"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
