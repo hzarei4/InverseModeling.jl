@@ -60,7 +60,8 @@ performs a fit of an ND-Gaussian function to ND data.
 + `optimizer`: the optimization method to use. See the `Optim` toolbox for details. `NelderMead()` and `LBFGS()` are possible choices.
 + `iterations`: maximum number of iterations
 #returns
-a named tuple with the result parameters (see above), additionally containing the parameter `:FWHM` for convenience referring to the Full width at half maximum of the Gaussian.
+a named tuple with the result parameters as a tuple (see above), additionally containing the parameter `:FWHM` for convenience referring to the Full width at half maximum of the Gaussian
+and the fit forward projection and the result of the optim call.
 """
 function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100)
     start_params = let
@@ -83,11 +84,15 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
     #fit_params[:i0] = fit_params[:i0] * scale
     #fit_params[:offset] = fit_params[:offset] * scale
     FWHMs = fit_params[:σ] .* sqrt(log(2) *2)*2
+    my_fwd = forward(bare) .* (scale*fit_params[:i0])
+    meas .*= scale
+    mean_meas = sum(meas)/prod(size(meas))
+    R2 = 1.0 - (sum(abs2.(meas .- my_fwd)) / sum(abs2.(meas .- mean_meas))) #ssq_res / ssq_total
     # fit_params=ComponentArray(ComponentArray(fit_params), (FWHMs=FWHMs))
-    fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHM=FWHMs)
+    fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHM=FWHMs, R2=R2)
     if verbose
         println("FWHMs : $FWHMs, Iterations : $(res.iterations), Norm: $(res.minimum)")
     end
-    return fit_params, forward(bare), res
+    return fit_params, my_fwd, res
 end
 
