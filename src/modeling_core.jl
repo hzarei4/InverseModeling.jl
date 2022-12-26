@@ -11,6 +11,13 @@ struct Positive{T}
     data::T
 end
 
+# this datatyp specifies that this parameter is normalized before the fit 
+# this is achieved by deviding by the factor in the inverse path and multiplying by it in the forward model
+struct Normalize{T}
+    data::T
+    factor::eltype(T)
+end
+
 """
     @my_get t s
 
@@ -29,13 +36,19 @@ end
 
 
 # access a NamedTuple with a symbol (eg  :a)
+get_val(val) = val
+get_val(val::Fixed) = get_val(val.data)
+get_val(val::Positive) = get_val(val.data)
+get_val(val::Normalize) = get_val(val.data)
 get_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id)
 get_val(val::Positive, id, fit, non_fit) = abs2.(getindex(fit, id))
+get_val(val::Normalize, id, fit, non_fit) = getindex(fit, id) .* val.factor
 get_val(val, id, fit, non_fit) = getindex(fit, id)
 
 # inverse opterations for the pre-forward model parts
-# get_inv_val(val::Fixed) = val
+get_inv_val(val::Fixed) = val.data
 get_inv_val(val::Positive) = sqrt.(val.data)
+get_inv_val(val::Normalize) = val.data ./ val.factor
 get_inv_val(val) = val
 
  # construct a named tuple from a dict
@@ -78,7 +91,9 @@ function prepare_fit(vals, dtype=Float64)
     function get_fit_results(res)
         # g(id) = get_val(getindex(fit_params, id), id, fit_params, fixed_params) 
         bare = Optim.minimizer(res)
+        # The line below may apply pre-forward-models to the fit results. This is not necessary for the fixed params
         fwd = NamedTuple{keys(bare)}(collect(get_val(bare, id, bare, fixed_params) for id in keys(bare)))
+        fwd = merge(fwd, fixed_params)
         return bare, fwd
     end
 
@@ -112,13 +127,13 @@ function create_forward(fwd, params, dtype=Float64)
 end
 
 """
-    loss(data, forward, my_norm=gaussian_norm)
+    loss(data, forward, my_norm=norm_gaussian)
 
 returns a loss function given a forward model `forward` with some measured data `data`. The noise_model is specified by `my_norm`.
 The returned function needs to be called with parameters to be given to the forward model as arguments. 
 """
-function loss(data, forward, my_norm=gaussian_norm)
-    return (params) -> my_norm(data, forward(params))
+function loss(data, forward, my_norm = loss_gaussian, bg=eltype(meas)(0))
+    return (params) -> my_norm(data, forward(params), bg)
 end
 
 """

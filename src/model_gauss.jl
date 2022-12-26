@@ -38,12 +38,12 @@ function gauss_start(meas, rel_thresh=0.2)
     μ = tuple_sum(tosum.(pos, meas.*mymask)) ./ sumpix
     mysqr(apos, dat) = abs2.(apos) .* dat 
     pos = idx(size(meas), offset=size(pos).÷2 .+1 .+ μ)
-    σ = max.(1.0,sqrt.(tuple_sum(mysqr.(pos, meas.*mymask )) ./ sumpix))
+    σ = 1.2 .* max.(1.0,sqrt.(tuple_sum(mysqr.(pos, meas.*mymask )) ./ sumpix))
     return (i0 = i0, σ=[σ...], μ=[μ...], offset=offset) # Fixed(), Positive
 end
 
 """
-    gauss_fit(meas, start_params=(), ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100)
+    gauss_fit(meas, start_params=(), ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100, noise_model=gaussian_norm)
 
 performs a fit of an ND-Gaussian function to ND data. 
 #arguments
@@ -54,16 +54,19 @@ performs a fit of an ND-Gaussian function to ND data.
             `:i0` the maximum value over the offset
             `:μ` a vector of mean positions
             `:σ` a vector of variances along the X and Y coordinates. Note that rotated Gaussians with a covariance matrix are currently not supported.
+            Note that any of the parameters can be fixed by encompassing them with the modifyer `Fixed()`
 + `ndims` : currently not used
 + `verbose`: if true, information on the fit will be printed on screen.
 + `pixelsize`: a scalar or tuple that the resulting standarddeviation and FWHM will be multiplied with
 + `optimizer`: the optimization method to use. See the `Optim` toolbox for details. `NelderMead()` and `LBFGS()` are possible choices.
 + `iterations`: maximum number of iterations
++ `noise_model`: defines the norm to optimize. default is gaussian_norm, but also other norms can be used
++ `bg`: an optional background term which is included in some of the noise models (e.g. `loss_poisson` and `loss_anscombe`)
 #returns
 a named tuple with the result parameters as a tuple (see above), additionally containing the parameter `:FWHM` for convenience referring to the Full width at half maximum of the Gaussian
 and the fit forward projection and the result of the optim call.
 """
-function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100)
+function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100, noise_model=loss_gaussian, bg=eltype(meas)(0))
     start_params = let
         if isempty(start_params)
             gauss_start(meas)
@@ -72,19 +75,19 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
         end
     end
     # @show start_params
-    scale = start_params[:i0]
+    scale = get_val(start_params[:i0])
     meas = meas ./ scale
-    start_params = (i0 = 1.0, σ=start_params[:σ] .* 1.2, μ=start_params[:μ], offset=start_params[:offset]./scale)
+    start_params = (i0 = 1.0, σ=start_params[:σ], μ=start_params[:μ], offset=get_val(start_params[:offset])./scale)
     forward, fit_parameters, get_fit_results = gauss_model(size(meas), start_params)
     # res = Optim.optimize(loss(meas, forward), fit_parameters)
-    res = optimize_model(loss(meas, forward), fit_parameters, optimizer=optimizer, iterations=iterations)
+    res = optimize_model(loss(meas, forward, noise_model, bg), fit_parameters, optimizer=optimizer, iterations=iterations)
     # fit_params = Optim.minimizer(res)
     bare, fit_params = get_fit_results(res)
-    fit_params[:σ] .*= pixelsize
+    #fit_params[:σ] .*= pixelsize
     #fit_params[:i0] = fit_params[:i0] * scale
     #fit_params[:offset] = fit_params[:offset] * scale
-    FWHMs = fit_params[:σ] .* sqrt(log(2) *2)*2
-    my_fwd = forward(bare) .* (scale*fit_params[:i0])
+    FWHMs = get_val(fit_params[:σ]) .* sqrt(log(2) *2)*2
+    my_fwd = forward(bare) .* scale
     meas .*= scale
     mean_meas = sum(meas)/prod(size(meas))
     R2 = 1.0 - (sum(abs2.(meas .- my_fwd)) / sum(abs2.(meas .- mean_meas))) #ssq_res / ssq_total
