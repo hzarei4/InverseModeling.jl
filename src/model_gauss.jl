@@ -11,7 +11,7 @@ function gauss_model(sz, parameters)
         return offset + i0.*exp(.-tbuf./2)
     end
     # using Ref() protects these vector-type arguments from immediate broadcasting here
-    # buffer to store the temporary caculation
+    # buffer to store the temporary calculation
     tmp = zeros(sz)
     function fit_fkt(params)
         tmp .= agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
@@ -76,8 +76,8 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
     end
     # @show start_params
     scale = get_val(start_params[:i0])
-    meas = meas ./ scale
-    start_params = (i0 = 1.0, σ=start_params[:σ], μ=start_params[:μ], offset=get_val(start_params[:offset])./scale)
+    # meas = meas ./ scale
+    start_params = (i0 = Normalize(start_params[:i0], scale), σ=start_params[:σ], μ=start_params[:μ], offset=Normalize(start_params[:offset], scale))
     forward, fit_parameters, get_fit_results = gauss_model(size(meas), start_params)
     # res = Optim.optimize(loss(meas, forward), fit_parameters)
     res = optimize_model(loss(meas, forward, noise_model, bg), fit_parameters, optimizer=optimizer, iterations=iterations)
@@ -87,12 +87,12 @@ function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0
     #fit_params[:i0] = fit_params[:i0] * scale
     #fit_params[:offset] = fit_params[:offset] * scale
     FWHMs = get_val(fit_params[:σ]) .* sqrt(log(2) *2)*2
-    my_fwd = forward(bare) .* scale
-    meas .*= scale
+    my_fwd = forward(bare) # .* scale
+    # meas .*= scale
     mean_meas = sum(meas)/prod(size(meas))
     R2 = 1.0 - (sum(abs2.(meas .- my_fwd)) / sum(abs2.(meas .- mean_meas))) #ssq_res / ssq_total
-    # fit_params=ComponentArray(ComponentArray(fit_params), (FWHMs=FWHMs))
-    fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHM=FWHMs, R2=R2)
+    fit_params=merge(fit_params, (FWHMs=FWHMs,))
+    # fit_params = (i0 = scale*fit_params[:i0], σ=fit_params[:σ], μ=fit_params[:μ], offset=fit_params[:offset]*scale, FWHM=FWHMs, R2=R2)
     if verbose
         println("FWHMs : $FWHMs, Iterations : $(res.iterations), Norm: $(res.minimum)")
     end

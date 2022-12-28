@@ -11,11 +11,15 @@ struct Positive{T}
     data::T
 end
 
-# this datatyp specifies that this parameter is normalized before the fit 
-# this is achieved by deviding by the factor in the inverse path and multiplying by it in the forward model
-struct Normalize{T}
+"""  Normalize{T}
+    this datatyp specifies that this parameter is normalized before the fit 
+    this is achieved by deviding by the factor in the inverse path and multiplying by it in the forward model.
+    Note that by casing a fit parameter `p` for example using `Normalize(p, maximum(p))`, the fit-variable will be unitless,
+    but the result will automatically be cast back to the original scale. This helps the fit to converge.
+"""
+struct Normalize{T,F}
     data::T
-    factor::eltype(T)
+    factor::F
 end
 
 """
@@ -34,22 +38,35 @@ macro my_get(t, x)
     :($t.$x)
 end
 
+# if Fixed appears anywhere in a chain of modifyers, all of them are ignored
+is_fixed(val) = false
+is_fixed(val::Fixed) = true
+is_fixed(val::Positive) = is_fixed(val.data)
+is_fixed(val::Normalize) = is_fixed(val.data)
 
 # access a NamedTuple with a symbol (eg  :a)
+# this returns just the bare value
 get_val(val) = val
-get_val(val::Fixed) = get_val(val.data)
-get_val(val::Positive) = get_val(val.data)
-get_val(val::Normalize) = get_val(val.data)
-get_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id)
-get_val(val::Positive, id, fit, non_fit) = abs2.(getindex(fit, id))
-get_val(val::Normalize, id, fit, non_fit) = getindex(fit, id) .* val.factor
-get_val(val, id, fit, non_fit) = getindex(fit, id)
+get_val(val::Fixed) = get_val(val.data) # to strip off the properties
+get_val(val::Positive) = get_val(val.data) # to strip off the properties
+get_val(val::Normalize) = get_val(val.data) # to strip off the properties
+
+# evaluated the pre-forward model modifyers
+get_fwd_val(val) = val
+get_fwd_val(val::Fixed) = get_fwd_val(val.data) # to strip off the properties
+get_fwd_val(val::Positive) = abs2.(get_fwd_val(val.data)) 
+get_fwd_val(val::Normalize) = get_fwd_val(val.data) .* val.factor
+
+get_fwd_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id) # do not apply any modifyers here.
+get_fwd_val(val::Positive, id, fit, non_fit) = abs2.(get_fwd_val(val.data, id, fit, non_fit))
+get_fwd_val(val::Normalize, id, fit, non_fit) = get_fwd_val(val.data, id, fit, non_fit) .* val.factor
+get_fwd_val(val, id, fit, non_fit) = get_fwd_val(getindex(fit, id))
 
 # inverse opterations for the pre-forward model parts
-get_inv_val(val::Fixed) = val.data
-get_inv_val(val::Positive) = sqrt.(val.data)
-get_inv_val(val::Normalize) = val.data ./ val.factor
 get_inv_val(val) = val
+get_inv_val(val::Fixed) = get_inv_val(val.data)
+get_inv_val(val::Positive) = sqrt.(get_inv_val(val.data))
+get_inv_val(val::Normalize) = get_inv_val(val.data) ./ val.factor
 
  # construct a named tuple from a dict
 construct_named_tuple(d) = NamedTuple{Tuple(keys(d))}(values(d))
@@ -76,8 +93,8 @@ function prepare_fit(vals, dtype=Float64)
     fit_dict = Dict() #ComponentArray{dtype}()
     non_fit_dict = Dict() #ComponentArray{dtype}()
     for (key, val) in zip(keys(vals), vals)        
-        if val isa Fixed
-            non_fit_dict[key] = val.data
+        if is_fixed(val) # isa Fixed
+            non_fit_dict[key] = get_val(val) # all other modifiers are ignored
         else
             fit_dict[key] = get_inv_val(val)
         end
@@ -92,7 +109,7 @@ function prepare_fit(vals, dtype=Float64)
         # g(id) = get_val(getindex(fit_params, id), id, fit_params, fixed_params) 
         bare = Optim.minimizer(res)
         # The line below may apply pre-forward-models to the fit results. This is not necessary for the fixed params
-        fwd = NamedTuple{keys(bare)}(collect(get_val(bare, id, bare, fixed_params) for id in keys(bare)))
+        fwd = NamedTuple{keys(bare)}(collect(get_fwd_val(vals[id], id, bare, fixed_params) for id in keys(bare)))
         fwd = merge(fwd, fixed_params)
         return bare, fwd
     end
@@ -104,6 +121,7 @@ end
     create_forward(fwd, params, dtype=Float64)
 
 creates a forward model given a model function `fwd` and a set of parameters `param`.
+The properties such as `Positive` or `Normalize` of the modified `params` are baked into the model
 #returns
 a tuple of
 `fit_params`    : a collection of the parameters to fit
@@ -116,11 +134,17 @@ function create_forward(fwd, params, dtype=Float64)
     fit_params, fixed_params, get_fit_results = prepare_fit(params, dtype)
 
     function forward(fit)
-        g(id) = get_val(getindex(params, id), id, fit, fixed_params) 
+        # g(id) = get_val(getindex(params, id), id, fit, fixed_params) 
+        function g(id) 
+            # v = get_fwd_val(getindex(params, id), id, fit, fixed_params) 
+            # println("params[$(id)] is $(params[id])")
+            get_fwd_val(params[id], id, fit, fixed_params) 
+            # println("$(id) is $(fit[id]) is $v")
+        end
         return fwd(g)
     end
     function backward(vals)
-        NamedTuple{keys(vals)}(collect(get_val(vals, id, vals, fixed_params) for id in keys(vals)))
+        NamedTuple{keys(vals)}(collect(get_fwd_val(vals, id, vals, fixed_params) for id in keys(vals)))
     end
     
     return fit_params, fixed_params, forward, backward, get_fit_results
