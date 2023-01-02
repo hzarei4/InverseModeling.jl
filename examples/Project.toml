@@ -1,0 +1,4 @@
+[deps]
+InverseModeling = "ce844058-9528-415d-a63d-06f3dd08b29f"
+Noise = "81d43f40-5267-43b7-ae1c-8b967f377efa"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"

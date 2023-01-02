@@ -88,19 +88,24 @@ a tuple of
 `get_fit_results`: a function that retrieves a tuple `(bare, params)` of the preforwardmodel fit result and a named tuple of version when called with the result of `optim()`
                 `bare` is the raw result withoút the pre_forward_model being applied. This can be plugged into `foward`
                 `param` is a named tuple of the result according to the model that the user specified.  
+`stripped_params``: a version of params, with the fixed parameters stripped from all modifications
 """
 function prepare_fit(vals, dtype=Float64)
     fit_dict = Dict() #ComponentArray{dtype}()
     non_fit_dict = Dict() #ComponentArray{dtype}()
+    stripped_params = Dict() # removed all modifications from Fixed values
     for (key, val) in zip(keys(vals), vals)        
         if is_fixed(val) # isa Fixed
             non_fit_dict[key] = get_val(val) # all other modifiers are ignored
+            stripped_params[key] = Fixed(get_val(val)) 
         else
             fit_dict[key] = get_inv_val(val)
+            stripped_params[key] = val
         end
     end
     fit_named_tuple = construct_named_tuple(fit_dict)
     non_fit_named_tuple = construct_named_tuple(non_fit_dict)
+    stripped_params = construct_named_tuple(stripped_params)
     
     fit_params = ComponentArray(fit_named_tuple)
     fixed_params = ComponentArray(non_fit_named_tuple)
@@ -114,7 +119,7 @@ function prepare_fit(vals, dtype=Float64)
         return bare, fwd
     end
 
-    return fit_params, fixed_params, get_fit_results
+    return fit_params, fixed_params, get_fit_results, stripped_params
 end
 
 """
@@ -131,15 +136,18 @@ a tuple of
 `get_fit_results`: a function that retrieves the fit result for the result of optim
 """
 function create_forward(fwd, params, dtype=Float64)
-    fit_params, fixed_params, get_fit_results = prepare_fit(params, dtype)
+    fit_params, fixed_params, get_fit_results, stripped_params = prepare_fit(params, dtype)
 
     function forward(fit)
-        # g(id) = get_val(getindex(params, id), id, fit, fixed_params) 
+        # g(id) = get_val(getindex(stripped_params, id), id, fit, fixed_params) 
         function g(id) 
-            # v = get_fwd_val(getindex(params, id), id, fit, fixed_params) 
-            # println("params[$(id)] is $(params[id])")
-            get_fwd_val(params[id], id, fit, fixed_params) 
-            # println("$(id) is $(fit[id]) is $v")
+            #v = get_fwd_val(stripped_params[id], id, fit, fixed_params) 
+            #@show stripped_params[id]
+            #@show v
+            #println("params[$(id)] is $(params[id])")
+            get_fwd_val(stripped_params[id], id, fit, fixed_params) 
+            #println("$(id) is $(fit[id]) is $v")
+            # v
         end
         return fwd(g)
     end
@@ -156,7 +164,7 @@ end
 returns a loss function given a forward model `forward` with some measured data `data`. The noise_model is specified by `my_norm`.
 The returned function needs to be called with parameters to be given to the forward model as arguments. 
 """
-function loss(data, forward, my_norm = loss_gaussian, bg=eltype(meas)(0))
+function loss(data, forward, my_norm = loss_gaussian, bg=eltype(data)(0))
     return (params) -> my_norm(data, forward(params), bg)
 end
 

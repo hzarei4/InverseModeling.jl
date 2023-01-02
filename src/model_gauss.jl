@@ -5,8 +5,18 @@ function gauss_model(sz, parameters)
     function agauss(pos, i0, x0, σ, offset)
         # tbuf = sum(abs2.((pos .- x0)./σ)) # cannot be used 
         tbuf = abs2.((pos[1].-x0[1]) ./σ[1]) #sum(abs2.((pos .- x0)./σ))
-        for n=2:length(x0) # length(sz)
+        for n=2:lastindex(x0) # length(sz)
             tbuf += abs2.((pos[n].-x0[n]) ./σ[n])   #sum(abs2.((pos .- x0)./σ))
+        end
+        if length(σ) > length(x0) # include covariance terms
+            c=1
+            for n=2:length(x0)÷2+1 # iterate over covariance terms (upper triangle in covariance matrix)
+                for m=1:n-1 # iterate over covariance terms
+                    tbuf += (pos[n].-x0[n]).*(pos[m].-x0[m]) .* σ[length(x0)+c]
+                    # @show σ[length(x0)+c]
+                    c += 1
+                end
+            end
         end
         return offset + i0.*exp(.-tbuf./2)
     end
@@ -14,7 +24,7 @@ function gauss_model(sz, parameters)
     # buffer to store the temporary calculation
     tmp = zeros(sz)
     function fit_fkt(params)
-        tmp .= agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
+            tmp .= agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
         return tmp
     end
 
@@ -27,7 +37,7 @@ function tuple_sum(tarray)
     reduce(tsum, tarray) 
 end
 
-function gauss_start(meas, rel_thresh=0.2)
+function gauss_start(meas, rel_thresh=0.2; has_covariance=false)
     pos = idx(size(meas))
     offset = minimum(meas)
     i0 = maximum(meas) - offset
@@ -39,6 +49,10 @@ function gauss_start(meas, rel_thresh=0.2)
     mysqr(apos, dat) = abs2.(apos) .* dat 
     pos = idx(size(meas), offset=size(pos).÷2 .+1 .+ μ)
     σ = 1.2 .* max.(1.0,sqrt.(tuple_sum(mysqr.(pos, meas.*mymask )) ./ sumpix))
+    if has_covariance
+        σ = [σ..., zeros(((length(μ))*(length(μ)-1))÷2)...]
+        @show σ
+    end
     return (i0 = i0, σ=[σ...], μ=[μ...], offset=offset) # Fixed(), Positive
 end
 
@@ -66,12 +80,12 @@ performs a fit of an ND-Gaussian function to ND data.
 a named tuple with the result parameters as a tuple (see above), additionally containing the parameter `:FWHM` for convenience referring to the Full width at half maximum of the Gaussian
 and the fit forward projection and the result of the optim call.
 """
-function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100, noise_model=loss_gaussian, bg=eltype(meas)(0))
+function gauss_fit(meas, start_params=[], ndims=[]; verbose=false, pixelsize=1.0, optimizer=LBFGS(), iterations=100, noise_model=loss_gaussian, bg=eltype(meas)(0), has_covariance=false)
     start_params = let
         if isempty(start_params)
-            gauss_start(meas)
+            gauss_start(meas, has_covariance=has_covariance)
         else
-            start_params
+            start_params            
         end
     end
     # @show start_params
