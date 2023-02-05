@@ -6,7 +6,7 @@ function gauss_model(sz, parameters)
         # tbuf = sum(abs2.((pos .- x0)./σ)) # cannot be used 
         tbuf = abs2.((pos[1].-x0[1]) ./σ[1]) #sum(abs2.((pos .- x0)./σ))
         for n=2:lastindex(x0) # length(sz)
-            tbuf += abs2.((pos[n].-x0[n]) ./σ[n])   #sum(abs2.((pos .- x0)./σ))
+            tbuf += abs2.((pos[n].-x0[n]) ./σ[((n-1)%length(σ))+1])   #sum(abs2.((pos .- x0)./σ))
         end
         if length(σ) > length(x0) # include covariance terms
             c=1
