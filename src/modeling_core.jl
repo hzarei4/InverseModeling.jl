@@ -1,4 +1,5 @@
-export create_forward, Fixed, Positive, loss, optimize_model
+export create_forward, loss, optimize_model
+export Fixed, Positive, Normalize, ClampSum
 
 # this datatyp specifies that this parameter is not part of the fit
 struct Fixed{T}
@@ -14,12 +15,34 @@ end
 """  Normalize{T}
     this datatyp specifies that this parameter is normalized before the fit 
     this is achieved by deviding by the factor in the inverse path and multiplying by it in the forward model.
-    Note that by casing a fit parameter `p` for example using `Normalize(p, maximum(p))`, the fit-variable will be unitless,
+    Note that by chosing a fit parameter `p` for example using `Normalize(p, maximum(p))` or `Normalize(p, mean(p))`, the fit-variable will be unitless,
     but the result will automatically be cast back to the original scale. This helps the fit to converge.
 """
 struct Normalize{T,F}
     data::T
     factor::F
+end
+
+""" ClampSum{T}
+    this contraint ensures that the value will never change its sum (optionally over predifined dimensions) during optimization. This is useful to avoid ambiguities during optimization.
+    In practice the last value is simply computed by the given initial sum minus all other values.
+"""
+struct ClampSum{T, S, N}
+    data::T
+    mysum::S
+    mysize::NTuple{N, Int}
+end
+""" ClampSum(dat::T, dims=ntuple((n)->n, ndims(dat))) where {T}
+
+convenience constructor. 
+# Arguments
++ `data`: data for which the sum should be clamped
++ `dims`: defines the dimensions over which to sums should be clamped. The default is all dimensions (clamps the total sum)
+"""
+function ClampSum(dat::T) where {T}
+    val = get_val(dat)
+    mysum = sum(val)
+    ClampSum{T,typeof(mysum),length(size(val))}(dat, mysum, size(val))
 end
 
 """
@@ -43,6 +66,7 @@ is_fixed(val) = false
 is_fixed(val::Fixed) = true
 is_fixed(val::Positive) = is_fixed(val.data)
 is_fixed(val::Normalize) = is_fixed(val.data)
+is_fixed(val::ClampSum) = is_fixed(val.data)
 
 # access a NamedTuple with a symbol (eg  :a)
 # this returns just the bare value
@@ -50,16 +74,29 @@ get_val(val) = val
 get_val(val::Fixed) = get_val(val.data) # to strip off the properties
 get_val(val::Positive) = get_val(val.data) # to strip off the properties
 get_val(val::Normalize) = get_val(val.data) # to strip off the properties
+get_val(val::ClampSum) = get_val(val.data) # to strip off the properties
 
 # evaluated the pre-forward model modifyers
 get_fwd_val(val) = val
 get_fwd_val(val::Fixed) = get_fwd_val(val.data) # to strip off the properties
 get_fwd_val(val::Positive) = abs2.(get_fwd_val(val.data)) 
 get_fwd_val(val::Normalize) = get_fwd_val(val.data) .* val.factor
+function get_fwd_val(val::ClampSum)
+    myvals = get_fwd_val(val.data)
+    # @show val.mysum
+    # @show sum(myvals)
+    reshape(vcat(myvals, val.mysum - sum(myvals)), val.mysize)
+end
 
 get_fwd_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id) # do not apply any modifyers here.
 get_fwd_val(val::Positive, id, fit, non_fit) = abs2.(get_fwd_val(val.data, id, fit, non_fit))
 get_fwd_val(val::Normalize, id, fit, non_fit) = get_fwd_val(val.data, id, fit, non_fit) .* val.factor
+function get_fwd_val(val::ClampSum, id, fit, non_fit)
+    myvals = get_fwd_val(val.data, id, fit, non_fit)
+    # @show val.mysum
+    # @show sum(myvals)
+    reshape(vcat(myvals, val.mysum - sum(myvals)), val.mysize)
+end
 get_fwd_val(val, id, fit, non_fit) = get_fwd_val(getindex(fit, id))
 
 # inverse opterations for the pre-forward model parts
@@ -67,6 +104,14 @@ get_inv_val(val) = val
 get_inv_val(val::Fixed) = get_inv_val(val.data)
 get_inv_val(val::Positive) = sqrt.(get_inv_val(val.data))
 get_inv_val(val::Normalize) = get_inv_val(val.data) ./ val.factor
+function get_inv_val(val::ClampSum)
+    myval = get_inv_val(val.data)
+    return myval[1:end-1] # optimize the 1D- view with the last value missing
+end
+
+# function truncated_view(dat, dims)
+#     return @view dat[(1:ifelse(d in dims, size(dat,d)-1, size(dat, d)) for d in ndims(dat))...]
+# end
 
  # construct a named tuple from a dict
 construct_named_tuple(d) = NamedTuple{Tuple(keys(d))}(values(d))
@@ -184,9 +229,9 @@ the result as provided by Optim.optimize()
 """
 function optimize_model(loss_fkt, start_vals; iterations=100, optimizer=LBFGS())
     optim_options = Optim.Options(iterations=iterations)
-    # g!(G,vec) = G.=gradient(loss_fkt,vec)[1]
-    # @time optim_res = Optim.optimize(loss_fkt, g!, start_vals, optimizer, optim_options)
-    optim_res = Optim.optimize(loss_fkt, start_vals, optimizer, optim_options) # ;  autodiff = :forward
+    g!(G,vec) = G.=gradient(loss_fkt,vec)[1]
+    @time optim_res = Optim.optimize(loss_fkt, g!, start_vals, optimizer, optim_options)
+    # optim_res = Optim.optimize(loss_fkt, start_vals, optimizer, optim_options) # ;  autodiff = :forward
     optim_res
 end
 
