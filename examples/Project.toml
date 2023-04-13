@@ -1,5 +1,6 @@
 [deps]
 ComponentArrays = "b0b7db55-cfe3-40fc-9ded-d10e2dbeff66"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 FourierTools = "b18b359b-aebc-45ac-a139-9c0ccbb2871e"
 IndexFunArrays = "613c443e-d742-454e-bfc6-1d7f8dd76566"
 InverseModeling = "ce844058-9528-415d-a63d-06f3dd08b29f"

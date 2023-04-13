@@ -1,5 +1,7 @@
-export create_forward, loss, optimize_model
+export create_forward, sim_forward, loss, optimize_model
+export get_loss
 export Fixed, Positive, Normalize, ClampSum
+export into_mask!
 
 # this datatyp specifies that this parameter is not part of the fit
 struct Fixed{T}
@@ -99,13 +101,15 @@ function get_fwd_val(val::ClampSum, id, fit, non_fit)
 end
 get_fwd_val(val, id, fit, non_fit) = get_fwd_val(getindex(fit, id))
 
+
 # inverse opterations for the pre-forward model parts
-get_inv_val(val) = val
-get_inv_val(val::Fixed) = get_inv_val(val.data)
-get_inv_val(val::Positive) = sqrt.(get_inv_val(val.data))
-get_inv_val(val::Normalize) = get_inv_val(val.data) ./ val.factor
-function get_inv_val(val::ClampSum)
-    myval = get_inv_val(val.data)
+get_inv_val(val, fct=identity) = fct.(val)
+get_inv_val(val::Fixed, fct=identity) = get_inv_val(val.data, fct)
+get_inv_val(val::Positive, fct=identity) = get_inv_val(val.data, (x)->(sqrt.(fct.(x))))
+get_inv_val(val::Normalize, fct=identity) = get_inv_val(val.data, (x)->fct.(x)./ val.factor) 
+get_inv_val(val::ClampSum, fct=identity) = get_inv_val(val.data, (x)->clamp_sum(fct.(x)))
+function clamp_sum(val)
+    myval = get_inv_val(val)
     return myval[1:end-1] # optimize the 1D- view with the last value missing
 end
 
@@ -204,6 +208,17 @@ function create_forward(fwd, params, dtype=Float64)
 end
 
 """
+    sim_forward(fwd, params)
+
+creates a model with a set of parameters and runs the forward method `fwd` to obtain the result.
+This is useful for a simulation. No noise is applied, but can be applied afterwards.
+"""
+function sim_forward(fwd, params)
+    vals, fixed_vals, forward, backward, get_fit_results = create_forward(fwd, params)
+    return forward(vals);
+end
+
+"""
     loss(data, forward, my_norm=norm_gaussian)
 
 returns a loss function given a forward model `forward` with some measured data `data`. The noise_model is specified by `my_norm`.
@@ -214,9 +229,10 @@ function loss(data, forward, my_norm = loss_gaussian, bg=eltype(data)(0))
 end
 
 """
-    optimize_model(loss_fkt, start_vals; iterations=100, optimizer=LBFGS())
+    optimize_model(loss_fkt, start_vals; iterations=100, optimizer=LBFGS(), kwargs...)
 
 performs the optimization of the model parameters by calling Optim.optimize() and returns the result.
+Other options such as `store_trace=true` can be provided and will be passed to `Optim.Options`.
 
 #arguments
 + `loss_fkt`        : the loss function to optimize
@@ -227,8 +243,8 @@ performs the optimization of the model parameters by calling Optim.optimize() an
 #returns
 the result as provided by Optim.optimize()
 """
-function optimize_model(loss_fkt, start_vals; iterations=100, optimizer=LBFGS())
-    optim_options = Optim.Options(iterations=iterations)
+function optimize_model(loss_fkt::Function, start_vals; iterations=100, optimizer=LBFGS(), kwargs...)
+    optim_options = Optim.Options(;iterations=iterations, kwargs...)
     g!(G,vec) = G.=gradient(loss_fkt,vec)[1]
     @time optim_res = Optim.optimize(loss_fkt, g!, start_vals, optimizer, optim_options)
     # optim_res = Optim.optimize(loss_fkt, start_vals, optimizer, optim_options) # ;  autodiff = :forward
@@ -236,14 +252,51 @@ function optimize_model(loss_fkt, start_vals; iterations=100, optimizer=LBFGS())
 end
 
 """
+    optimize_model(start_val::Tuple, fwd_model::Function, loss_type=loss_gaussian; iterations=100, optimizer=LBFGS(), store_trace=true, kwargs...)
+
+performs the optimization of the model parameters by calling Optim.optimize() and returns the result.
+
+#arguments
++ `start_val`: the set of parameters over which the optimization is performed
++ `fwd_model`: the model which is optimized.
++ `loss_type`: the type of the loss function to use.
++ `iterations`      : number of iterations to perform (default: 100). This is provided via the `Optim.Options` stucture.
++ `optimizer=LBFGS()`: the optimizer to use
+
+#returns
+the result is a Tuple of `res` and the trace of the loss function value. `res` is a `ComponentArray` with all the results after applying the pre-forward part of the algorithm.
+This includes the values marked as `Fixed()`.
+if the argument ``store_trace=false` is provided no trace will be returned.
+
+#See also:
+The other (low-level) version of `optimize_model` with the loss function as the first argument.
+"""
+function optimize_model(start_val::NamedTuple, fwd_model::Function, meas, loss_type=loss_gaussian; iterations=100, optimizer=LBFGS(), store_trace=true, kwargs...)
+    start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(fwd_model, start_val);
+    optim_res = InverseModeling.optimize_model(loss(meas, forward, loss_type), start_vals; iterations=iterations, optimizer=optimizer, store_trace=store_trace, kwargs...);
+    bare, res = get_fit_results(optim_res)
+    if store_trace
+        return res, [t.value for t in optim_res.trace][2:end]
+    else
+        return res
+    end
+end
+
+function get_loss(start_val::NamedTuple, fwd_model::Function, meas, loss_type=loss_gaussian)
+    start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(fwd_model, start_val);
+    loss(meas, forward, loss_type)(start_vals)
+end
+
+"""
     into_mask!(vec::AbstractArray{T, 1}, mymask::AbstractArray{Bool, N}, tmp_data=zeros(eltype(vec),size(mymask))) where {T, N}
 
 fills a vector into a mask `mymask`. This is very useful for optimizing only some pixels in an image. E.g. the inner part of a Fourier-space aperture.
-#arguments
+#Arguments
 + `vec` : the vector to fill into the mask
 + `mymask`  : a binary mask to use
 + `tmp_data` : the mask is filled into only this part of the dataset. For efficiency reasons you should provide this argument, even if this is not strictly necessary as zeros are filled in.
-#returns
+            Note that you can also supply this argument to have a part of the resulting image being fixed.
+#Returns
 tmp_mask
 """
 function into_mask!(vec::AbstractArray{T, 1}, mymask::AbstractArray{Bool, N}, tmp_data=zeros(eltype(vec),size(mymask))) where {T, N}
