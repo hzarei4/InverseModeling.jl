@@ -7,7 +7,7 @@ using PointSpreadFunctions
 
 function test_ism_recon()
 
-    obj = select_region(Float32.(testimage("resolution_test_512")), new_size=(128,128), center=(249,374)) .* 1000;
+    obj = select_region(Float32.(testimage("resolution_test_512")), new_size=(128,128), center=(249,374)) .* 10000;
     sz = size(obj)
 
     pp_ex = PSFParams(0.488, 1.4, 1.52, pol=pol_scalar);
@@ -18,8 +18,6 @@ function test_ism_recon()
     # aberrations = Aberrations([Zernike_VerticalAstigmatism, Zernike_ObliqueAstigmatism],[0.5, 0.6])
     pp_em = PSFParams(0.520, 1.4, 1.52, pol=pol_scalar, method=MethodPropagateIterative, aberrations=aberrations);
     a_em = apsf(sz, pp_em; sampling=(0.050,0.050,0.200));
-    p_em2 = abs2.(a_em)
-    # @vp ft(a_em)
     p_em = psf(sz, pp_em; sampling=(0.050,0.050,0.200));
 
     # @vt p_ex p_em p_em2
@@ -29,7 +27,9 @@ function test_ism_recon()
     pupil_em = fft(asf_em)
     pupil_noabber = abs.(pupil_em) .+0im
     psf_em = ifftshift(p_em)
+    psf_noabber = abs2.(ifft(pupil_noabber))
 
+    # make shif factors (in Fourier space)
     dx = 1.1; dy = 1.1;
     all_shifts = Tuple(ifftshift(exp_ikx(sz,shift_by=(x*dx,y*dy))) for x in -2:2, y in -2:2);
     all_shifts = cat(all_shifts..., dims=4);
@@ -67,12 +67,14 @@ function test_ism_recon()
     # make a simulation
     meas = sim_forward(fwd_amp, (obj=Positive(obj), pupil_em=Fixed(pupil_em[pupil_mask])));
     # meas = Noise.poisson(meas);
+
+    # calculate some possible normalization factors.
     mymean = sum(meas) ./ prod(size(meas))
     mymax = maximum(meas) 
     numpix = prod(size(meas))
 
     # start with some object-only iterations
-    # start_val = (obj=Normalize(Positive(ones(sz) .* mymean),  4.0*mymean), psf_em=Fixed(psf_ex))
+    # start_val = (obj=Normalize(Positive(ones(sz) .* mymean),  4.0*mymean), psf_em=Fixed(psf_noabber))
     start_val = (obj=Normalize(Positive(res1[:obj]), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
     # res1, myloss1 = optimize_model(start_val, fwd_int, meas; iterations=50)
     res1, myloss1 = optimize_model(start_val, fwd_phase, meas; iterations=50)
@@ -81,11 +83,11 @@ function test_ism_recon()
 
     @vt obj res1[:obj]
 
-    recon_int = false
+    recon_int = true
     phase_only = true
     myfwd = nothing
     if recon_int
-        start_val = (obj=Normalize(Positive(ones(sz) .* mymean),  4.0*mymean), psf_em=Positive(psf_ex))
+        start_val = (obj=Normalize(Positive(res1[:obj]),  4.0*mymean), psf_em=Positive(psf_noabber))
         myfwd = fwd_int
         # start_val = (obj=Fixed(res1[:obj]), psf_em=Positive(psf_ex))
         # start_val = (obj=Normalize(Positive(ones(sz) .* mymean), mymean), psf_em=Positive(psf_ex))
@@ -107,39 +109,32 @@ function test_ism_recon()
             myfwd = fwd_amp
         end
     end
+    # just look at the initial loss
     get_loss(start_val, myfwd, meas)
 
     res, myloss = optimize_model(start_val, myfwd, meas; iterations=450)
     println("Loss is $(myloss[end])")
     plot!(myloss, label="L-BFGS") # , yaxis=:log
-    if phase_only
-        into_mask!(pupil_strength .* cis.(res[:phase_em]), pupil_mask, modified_pupil)
+    if recon_int
+        @vtp fftshift(psf_em) fftshift(res[:psf_em])
     else
-        into_mask!(res[:pupil_em], pupil_mask, modified_pupil)
+        if phase_only
+            into_mask!(pupil_strength .* cis.(res[:phase_em]), pupil_mask, modified_pupil)
+        else
+            into_mask!(res[:pupil_em], pupil_mask, modified_pupil)
+        end
+        @vtp fftshift(pupil_em) fftshift(modified_pupil)
     end
-    @vtp fftshift(pupil_em) fftshift(modified_pupil)
-
-    @vtp fftshift(psf_em) fftshift(res[:psf_em])
 
 
-    # start_val = (obj=Normalize(Positive(ones(sz) .* mymean), mymean), psf_em=Fixed(psf_em))
-    # start_val = (obj=Positive(ones(sz) .* mymean), psf_em=Fixed(psf_em))
+
+    # END here
+    # here is some stuff how to do use the low-level interface instead:
+
     start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(myfwd, start_val);
-    size(forward(start_vals)) 
     # @vt forward(start_vals) meas
 
     @time first_pred = forward(start_vals)
-
-    # # do some Zygote tests
-    # a = rand(32,32)
-    # b = rand(32,32,1,25)
-    # m = rand(32,32,1,25)
-    # # all_psfs = psf_ex .* real.(ifft(fft(params(:psf_em)) .* all_shifts, (1,2,3)))
-    # myloss(a) = sum(abs2.(a .* real.(ifft(fft(a) .* b, (1,2,3))) .- m))
-    # @time gradient(myloss, a)[1];
-    loss(meas, forward)(start_vals)
-    @time gradient(loss(meas, forward), start_vals)[1]
-
 
     @time optim_res = InverseModeling.optimize_model(loss(meas, forward, loss_gaussian), start_vals, iterations=55, store_trace=true);
     # @show optim_res = Optim.optimize(loss(measured, forward), start_vals, LBFGS())
@@ -160,24 +155,6 @@ function test_ism_recon()
     plot(psf_ex[1:10,1], label="psf_ex")
     plot!(psf_em[1:10,1], label="GT psf_em")
     plot!(res[:psf_em][1:10,1], label="recovered psf_em")
-
-
-    # gradient test
-    a = rand(ComplexF32,10,10)
-    b = rand(ComplexF32,10,10)
-    m = abs.(a) .> 0.3
-    v = a[m]
-
-    lo(v1) = sum(abs2.(into_mask!(v1, m, b) .- 0.5))
-    lo2(v1) = sum(abs2.(v1 .- 0.5))
-    g = gradient(lo, v)[1]
-    g2 = gradient(lo2, v)[1]
-    g == g2
-
-    #
-    tst_val = (tst1=Normalize(Positive(2.0), 10.0),)
-    tst_start_vals, fixed_vals, forward, backward, get_fit_results = create_forward((x)->x(:tst1), tst_val);
-    forward(tst_start_vals)
 
 end
 
