@@ -39,6 +39,7 @@ function test_ism_recon()
     pupil_mask = (abs.(pupil_em) .> 0.1)
     pupil_mask[1] = false # fix the middle pixel to remove ambiguities
     modified_pupil = copy(pupil_noabber)
+    # this forward model gets an object and complex-valued pupil values (only inside) and calculates ISM Data
     function fwd_amp(params)
         # its important to have the return value for the gradient to compute
         mod_pupil = into_mask!(params(:pupil_em), pupil_mask, modified_pupil)
@@ -49,6 +50,7 @@ function test_ism_recon()
     end
 
     pupil_strength = abs.(pupil_noabber[pupil_mask])
+    # this forward model gets an object and pupil phase values (only inside) and calculates an ISM Data
     function fwd_phase(params)
         pupil_vals = pupil_strength .* cis.(params(:phase_em))
         mod_pupil = into_mask!(pupil_vals, pupil_mask, modified_pupil)
@@ -59,6 +61,7 @@ function test_ism_recon()
     end
 
     # intensity psf reconstruction model
+    # this forward model gets an object and an intensity PSF and calculates the ISM data
     function fwd_int(params)
         all_psfs = psf_ex .* real.(ifft(fft(params(:psf_em)) .* all_shifts, (1,2,3)))
         return real.(ifft(fft(params(:obj)) .* fft(all_psfs, (1,2,3)), (1,2,3)))
