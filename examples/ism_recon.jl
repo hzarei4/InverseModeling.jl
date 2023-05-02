@@ -1,5 +1,6 @@
 # using InverseModeling, View5D, Noise, NDTools, FourierTools
-using View5D, NDTools, FourierTools, TestImages, IndexFunArrays, ComponentArrays
+using View5D, NDTools, FourierTools, TestImages, 
+using IndexFunArrays, ComponentArrays
 using InverseModeling
 using Plots
 using Zygote, Noise
@@ -73,9 +74,11 @@ function test_ism_recon()
     mymax = maximum(meas) 
     numpix = prod(size(meas))
 
-    # start with some object-only iterations
+    # start with some object-only iterations:
+
     # start_val = (obj=Normalize(Positive(ones(sz) .* mymean),  4.0*mymean), psf_em=Fixed(psf_noabber))
-    start_val = (obj=Normalize(Positive(res1[:obj]), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
+    # start_val = (obj=Normalize(Positive(res1[:obj]), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
+    start_val = (obj=Normalize(Positive(ones(sz)), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
     # res1, myloss1 = optimize_model(start_val, fwd_int, meas; iterations=50)
     res1, myloss1 = optimize_model(start_val, fwd_phase, meas; iterations=50)
     print("Loss is $(myloss1[end])")
@@ -83,7 +86,7 @@ function test_ism_recon()
 
     @vt obj res1[:obj]
 
-    recon_int = true
+    recon_int = false
     phase_only = true
     myfwd = nothing
     if recon_int
