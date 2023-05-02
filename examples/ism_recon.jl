@@ -3,23 +3,28 @@ using View5D, NDTools, FourierTools, TestImages,
 using IndexFunArrays, ComponentArrays
 using InverseModeling
 using Plots
-using Zygote, Noise
+using Noise
 using PointSpreadFunctions
+# using Zygote
 
 function test_ism_recon()
 
-    obj = select_region(Float32.(testimage("resolution_test_512")), new_size=(128,128), center=(249,374)) .* 10000;
+    aberrations = Aberrations([Zernike_VerticalAstigmatism, Zernike_ObliqueAstigmatism],[1.5, 0.6])
+    λ_ex = 0.488
+    λ_em = 0.520
+    sampling = (0.050,0.050,0.200)
+
+    obj = select_region(Float32.(testimage("resolution_test_512")), new_size=(128,128), center=(249,374)) .* 50000;
     sz = size(obj)
 
-    pp_ex = PSFParams(0.488, 1.4, 1.52, pol=pol_scalar);
-    p_ex = psf(sz, pp_ex; sampling=(0.050,0.050,0.200));
+    pp_ex = PSFParams(λ_ex, 1.4, 1.52, pol=pol_scalar, method=MethodPropagateIterative, aberrations=aberrations);
+    p_ex = psf(sz, pp_ex; sampling=sampling);
 
     # make a different (aberrated) psf
-    aberrations = Aberrations([Zernike_VerticalAstigmatism, Zernike_ObliqueAstigmatism],[1.5, 0.6])
     # aberrations = Aberrations([Zernike_VerticalAstigmatism, Zernike_ObliqueAstigmatism],[0.5, 0.6])
-    pp_em = PSFParams(0.520, 1.4, 1.52, pol=pol_scalar, method=MethodPropagateIterative, aberrations=aberrations);
-    a_em = apsf(sz, pp_em; sampling=(0.050,0.050,0.200));
-    p_em = psf(sz, pp_em; sampling=(0.050,0.050,0.200));
+    pp_em = PSFParams(λ_em, 1.4, 1.52, pol=pol_scalar, method=MethodPropagateIterative, aberrations=aberrations);
+    a_em = apsf(sz, pp_em; sampling=sampling);
+    p_em = psf(sz, pp_em; sampling=sampling);
 
     # @vt p_ex p_em p_em2
 
@@ -40,10 +45,12 @@ function test_ism_recon()
     pupil_mask[1] = false # fix the middle pixel to remove ambiguities
     modified_pupil = copy(pupil_noabber)
     # this forward model gets an object and complex-valued pupil values (only inside) and calculates ISM Data
-    function fwd_amp(params)
+    function fwd_amp(params; psf_ex=nothing)
         # its important to have the return value for the gradient to compute
         mod_pupil = into_mask!(params(:pupil_em), pupil_mask, modified_pupil)
         psf_em = abs2.(ifft(mod_pupil))
+        # mod_ex_pupil = into_mask!(conj.(params(:pupil_em)), pupil_mask, modified_pupil)
+        psf_ex = ifelse(isnothing(psf_ex), psf_em, psf_ex) # abs2.(ifft(mod_ex_pupil))
         all_psfs = psf_ex .* real.(ifft(fft(psf_em) .* all_shifts, (1,2,3)))
         return real.(ifft(fft(params(:obj)) .* fft(all_psfs, (1,2,3)), (1,2,3)))
         # return conv(params(:obj), all_psfs, (1,2))
@@ -51,10 +58,12 @@ function test_ism_recon()
 
     pupil_strength = abs.(pupil_noabber[pupil_mask])
     # this forward model gets an object and pupil phase values (only inside) and calculates an ISM Data
-    function fwd_phase(params)
+    function fwd_phase(params; psf_ex=nothing)
         pupil_vals = pupil_strength .* cis.(params(:phase_em))
         mod_pupil = into_mask!(pupil_vals, pupil_mask, modified_pupil)
         psf_em = abs2.(ifft(mod_pupil))
+        # mod_ex_pupil = into_mask!(conj.(pupil_vals), pupil_mask, modified_pupil)
+        psf_ex = ifelse(isnothing(psf_ex), psf_em, psf_ex) # abs2.(ifft(mod_ex_pupil))
         all_psfs = psf_ex .* real.(ifft(fft(psf_em) .* all_shifts, (1,2,3)))
         return real.(ifft(fft(params(:obj)) .* fft(all_psfs, (1,2,3)), (1,2,3)))
         # return conv(params(:obj), all_psfs, (1,2))
@@ -62,15 +71,17 @@ function test_ism_recon()
 
     # intensity psf reconstruction model
     # this forward model gets an object and an intensity PSF and calculates the ISM data
-    function fwd_int(params)
-        all_psfs = psf_ex .* real.(ifft(fft(params(:psf_em)) .* all_shifts, (1,2,3)))
+    function fwd_int(params; psf_ex=nothing)
+        psf_em = params(:psf_em)
+        psf_ex = ifelse(isnothing(psf_ex), psf_em, psf_ex) # abs2.(ifft(mod_ex_pupil))
+        all_psfs = psf_ex .* real.(ifft(fft(psf_em) .* all_shifts, (1,2,3)))
         return real.(ifft(fft(params(:obj)) .* fft(all_psfs, (1,2,3)), (1,2,3)))
         # return conv(params(:obj), all_psfs, (1,2))
     end
 
     # make a simulation
-    meas = sim_forward(fwd_amp, (obj=Positive(obj), pupil_em=Fixed(pupil_em[pupil_mask])));
-    # meas = Noise.poisson(meas);
+    meas = sim_forward((x)->fwd_amp(x, psf_ex=psf_ex), (obj=Positive(obj), pupil_em=Fixed(pupil_em[pupil_mask])));
+    meas = Noise.poisson(meas);
 
     # calculate some possible normalization factors.
     mymean = sum(meas) ./ prod(size(meas))
@@ -81,8 +92,9 @@ function test_ism_recon()
 
     # start_val = (obj=Normalize(Positive(ones(sz) .* mymean),  4.0*mymean), psf_em=Fixed(psf_noabber))
     # start_val = (obj=Normalize(Positive(res1[:obj]), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
-    start_val = (obj=Normalize(Positive(ones(sz)), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
+    start_val = (obj=Normalize(Positive(ones(sz) .* mymean), 16.0*mymean), phase_em=Fixed(angle.(pupil_noabber[pupil_mask])))
     # res1, myloss1 = optimize_model(start_val, fwd_int, meas; iterations=50)
+    get_loss(start_val, myfwd, meas)
     res1, myloss1 = optimize_model(start_val, fwd_phase, meas; iterations=50)
     print("Loss is $(myloss1[end])")
     plot(myloss1, label="L-BFGS") # , yaxis=:log
