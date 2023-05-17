@@ -24,7 +24,7 @@ function gauss_model(sz, parameters)
     # buffer to store the temporary calculation
     tmp = zeros(sz)
     function fit_fkt(params)
-            tmp .= agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
+            tmp = agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
         return tmp
     end
 
