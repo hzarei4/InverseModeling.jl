@@ -1,5 +1,7 @@
 using InverseModeling, View5D, Noise, TestImages, FourierTools, FFTW
 
+### THIS SEEMS TO BE INCOMPLETELY TRANSLATED PYTHON CODE FROM THE NIP TOOLBOX
+
 # parameters
 # is a named Tuple with the following entries:
 # 
@@ -53,22 +55,22 @@ function mkIntKGrid(k_coherent_full, kall, IncoherentOrderstrengths, astrengths_
     ErrorLimit = 1.0e-6;
     astrengths = astrengths_full
     SIMParam.doesMatter = zeros(Bool, (nks, nks));
-    if astrengths.ndim > 1:
+    if astrengths.ndim > 1
         astrengths = transpose(astrengths)
     end
-    for n in range(nks):
-        for m in range(n, nks):  # only generate one side of the k-vectors
+    for n in range(nks)
+        for m in range(n, nks)  # only generate one side of the k-vectors
             dk = ks[m] - ks[n]
             #            print("Interfering ",n,"x",m)
             SIMParam.doesMatter[n, m] = (np.dot(astrengths[n], astrengths[m]) > 0.0)  # at least one instance in time, where both of these are used.
-            if m != n and SIMParam.doesMatter[n, m] and np.linalg.norm(dk) < ErrorLimit:
-                raise ValueError("Found two times the same k-vector (" + str(n) + "," + str(m) + "). This is against the rules!")
+            if m != n && SIMParam.doesMatter[n, m] && np.linalg.norm(dk) < ErrorLimit
+                error("Found two times the same k-vector ($(n),$(m)). This is against the rules!")
             end
-            if SIMParam.doesMatter[n, m]:  # and (kmax is None or np.abs(dk) < kmax):
-                if m != n:
+            if SIMParam.doesMatter[n, m]  # and (kmax is None or np.abs(dk) < kmax):
+                if m != n
                     SIMParam.kall.append(dk)
                     SIMParam.IncoherentOrderstrengths.append(astrengths[n] * astrengths[m] * 2.0)  # the 2.0 is for the other combination
-                else:  # add to the zero order
+                else  # add to the zero order
                     SIMParam.IncoherentOrderstrengths[0] += astrengths[n] * astrengths[m]
                 end
             end
@@ -119,22 +121,22 @@ function simulate_SIM(obj=nothing; use_2D=true, psf=nothing, PSF_params=nothing,
     # m = 1.0
     # illu = (1 + m*im.coswave(obj,k0))
 
-    if SimParam.NumPhot is not None:
+    if !isnothing(SimParam.NumPhot) 
         normed_obj = SimParam.obj / np.max(SimParam.obj) * SimParam.NumPhot  # account for the maximally emitted photons
         SimParam.obj = normed_obj
 
-    if SimParam.use_bleaching:
+    if SimParam.use_bleaching
         SimParam.emission = im.ApplyIlluWithBleaching(SimParam.obj, SimParam.myillu, SimParam.bleachingrate)
-    else:
+    else
         SimParam.emission = SimParam.obj * SimParam.myillu
 
     SimParam.pimg = nip.downsampleConvolveROTF(SimParam.emission, SimParam.rotf, psfd.shape)
     #    SimParam.pimg = nip.convROTF(SimParam.emission,SimParam.rotf)
     SimParam.pimg[SimParam.pimg < 0.0] = 0.0
 
-    if SimParam.ApplyNoise:
-        SimParam.nimg = nip.noise.poisson(SimParam.pimg, seed=0, dtype='float32')  # Christian: default should be seed=0
-    else:
+    if SimParam.ApplyNoise
+        SimParam.nimg = Float32.(poisson(SimParam.pimg, seed=0))  # Christian: default should be seed=0
+    else
         SimParam.nimg = SimParam.pimg
     SimParam.nimg = SimParam.nimg + SimParam.backgroundOffset
 
