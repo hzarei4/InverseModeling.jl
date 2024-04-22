@@ -23,8 +23,8 @@ plot(time_data,dat[fit_start:end,2])
 plot!(time_data,dat[fit_start:end,3])
 plot!(time_data, irf_n[:,1] .* 1000000)
 
-function  multi_exp_decay(time_data, amps, τs, k=1000.0)
-    return sum(amps' .* MicroscopyTools.soft_theta.(time_data, k) .* exp.(-time_data ./ (τs')), dims=2)
+function  multi_exp_decay(time_data, amps, τs)
+    return sum(amps' .* MicroscopyTools.soft_theta_pw.(time_data, 0.002) .* exp.(-time_data ./ (τs')), dims=2)
 end
 
 function multi_exp(params)
@@ -41,8 +41,14 @@ end
 function show_fit(measured_n, fit)
     l = @layout([a; b]);
     resid = measured_n .- fit;
-    toplot = cat(measured_n[:,1],resid[:,1],measured_n[:,2], resid[:,2], fit[:,1], resid[:,1], fit[:,2], dims=2);
-    labels = ["Iₚₐᵣ" "" "Iₚₑᵣₚ" "residₚₑᵣₚ" "fitₚₐᵣ" "residₚₐᵣ" "fitₚₑᵣₚ"]
+    toplot = cat(measured_n[:,1], resid[:,1], 
+                measured_n[:,2], resid[:,2],
+                fit[:,1], resid[:,1],
+                fit[:,2], dims=2);
+    labels = ["Iₚₐᵣ" "" 
+              "Iₚₑᵣₚ" "residₚₑᵣₚ"
+              "fitₚₐᵣ" "residₚₐᵣ"
+              "fitₚₑᵣₚ"]
     plot_ref = plot(time_data,toplot, layout=l, title = ["Multiexponential Fit" "Residuals"], 
         xlabel = "time (ns)",
         ylabel = "intensity (a.u.)",
@@ -92,9 +98,9 @@ optim_res = InverseModeling.optimize(loss(measured_n, forward), start_vals, iter
 # @show optim_res = Optim.optimize(loss(measured, forward), start_vals, LBFGS())
 bare, res = get_fit_results(optim_res)
 fit = forward(bare);
+show_fit(measured_n, fit)
 
 # print("t0: $(res[1])\noffsets: $(res[2])\ncrosstalk: $(res[3])\nτᵣₒₜ: $(res[4]) ns\nr₀: $(res[5])\nG: $(res[6])\namps: $(res[7])\nτs: $(res[8]) ns")
-show_fit(measured_n, fit)
 
 start_vals = bare # reuse the result for next fit
 
