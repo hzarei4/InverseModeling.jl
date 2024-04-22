@@ -161,9 +161,10 @@ function prepare_fit(vals, dtype=Float64)
 
     function get_fit_results(res)
         # g(id) = get_val(getindex(fit_params, id), id, fit_params, fixed_params) 
-        bare = Optim.minimizer(res)
+        bare = res.minimizer # Optim.minimizer(res)
+        all_keys = keys(bare)
         # The line below may apply pre-forward-models to the fit results. This is not necessary for the fixed params
-        fwd = NamedTuple{keys(bare)}(collect(get_fwd_val(vals[id], id, bare, fixed_params) for id in keys(bare)))
+        fwd = NamedTuple{all_keys}(collect(get_fwd_val(vals[id], id, bare, fixed_params) for id in keys(bare)))
         fwd = merge(fwd, fixed_params)
         return bare, fwd
     end
@@ -200,8 +201,10 @@ function create_forward(fwd, params, dtype=Float64)
         end
         return fwd(g)
     end
+
     function backward(vals)
-        NamedTuple{keys(vals)}(collect(get_fwd_val(vals, id, vals, fixed_params) for id in keys(vals)))
+        all_keys = keys(vals)
+        NamedTuple{all_keys}(collect(get_fwd_val(vals, id, vals, fixed_params) for id in keys(vals)))
     end
     
     return fit_params, fixed_params, forward, backward, get_fit_results
