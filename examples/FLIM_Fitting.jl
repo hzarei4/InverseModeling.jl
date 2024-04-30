@@ -45,11 +45,8 @@ function show_fit(measured_n, fit)
                 measured_n[:,2], resid[:,2],
                 fit[:,1], resid[:,1],
                 fit[:,2], dims=2);
-    labels = ["Iₚₐᵣ" "" 
-              "Iₚₑᵣₚ" "residₚₑᵣₚ"
-              "fitₚₐᵣ" "residₚₐᵣ"
-              "fitₚₑᵣₚ"]
-    plot_ref = plot(time_data,toplot, layout=l, title = ["Multiexponential Fit" "Residuals"], 
+    labels = ["Iₚₐᵣ" "" "Iₚₑᵣₚ" "residₚₑᵣₚ" "fitₚₐᵣ" "residₚₐᵣ" "fitₚₑᵣₚ" ""]
+    plot_ref = plot(time_data, toplot, layout=l, title = ["Multiexponential Fit" "Residuals"], 
         xlabel = "time (ns)",
         ylabel = "intensity (a.u.)",
         label = labels)
@@ -91,8 +88,10 @@ start_val = (amps=[2.1600984514146395, 3.5757088854321526],
 convolved = (vec) -> conv(multi_exp(vec));
 
 start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(convolved, start_val)
-plot(time_data, measured_n, xlabel="time (ns)", ylabel="intensity (a.u.)")
-plot!(time_data,forward(start_vals))
+plot(time_data, measured_n, xlabel="time (ns)",
+        ylabel="intensity (a.u.)",
+        label=["Iₚₐᵣ" "Iₚₑᵣₚ"],)
+plot!(time_data,forward(start_vals); label=["startₚₐᵣ" "startₚₑᵣₚ"])
 
 optim_res = InverseModeling.optimize(loss(measured_n, forward), start_vals, iterations=800);
 # @show optim_res = Optim.optimize(loss(measured, forward), start_vals, LBFGS())
