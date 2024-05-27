@@ -1,30 +1,35 @@
 export gauss_model, gauss_start, gauss_fit
 
 function gauss_model(sz, parameters)
-    pos = collect(idx(sz))
-    function agauss(pos, i0, x0, σ, offset)
-        # tbuf = sum(abs2.((pos .- x0)./σ)) # cannot be used 
-        tbuf = abs2.((pos[1].-x0[1]) ./σ[1]) #sum(abs2.((pos .- x0)./σ))
-        for n=2:lastindex(x0) # length(sz)
-            tbuf += abs2.((pos[n].-x0[n]) ./σ[((n-1)%length(σ))+1])   #sum(abs2.((pos .- x0)./σ))
-        end
-        if length(σ) > length(x0) # include covariance terms
-            c=1
-            for n=2:length(x0)÷2+1 # iterate over covariance terms (upper triangle in covariance matrix)
-                for m=1:n-1 # iterate over covariance terms
-                    tbuf += (pos[n].-x0[n]).*(pos[m].-x0[m]) .* σ[length(x0)+c]
-                    # @show σ[length(x0)+c]
-                    c += 1
-                end
-            end
-        end
-        return offset + i0.*exp(.-tbuf./2)
-    end
+    # pos = collect(idx(sz))
+    T = Float32;
+    all_axes = zeros(T, prod(sz))
+    # function agauss(pos, i0, x0, σ, offset)
+    #     # tbuf = sum(abs2.((pos .- x0)./σ)) # cannot be used 
+    #     tbuf = abs2.((pos[1].-x0[1]) ./σ[1]) #sum(abs2.((pos .- x0)./σ))
+    #     for n=2:lastindex(x0) # length(sz)
+    #         tbuf += abs2.((pos[n].-x0[n]) ./σ[((n-1)%length(σ))+1])   #sum(abs2.((pos .- x0)./σ))
+    #     end
+    #     if length(σ) > length(x0) # include covariance terms
+    #         c=1
+    #         for n=2:length(x0)÷2+1 # iterate over covariance terms (upper triangle in covariance matrix)
+    #             for m=1:n-1 # iterate over covariance terms
+    #                 tbuf += (pos[n].-x0[n]).*(pos[m].-x0[m]) .* σ[length(x0)+c]
+    #                 # @show σ[length(x0)+c]
+    #                 c += 1
+    #             end
+    #         end
+    #     end
+    #     return offset + i0.*exp(.-tbuf./2)
+    # end
     # using Ref() protects these vector-type arguments from immediate broadcasting here
     # buffer to store the temporary calculation
-    tmp = zeros(sz)
+    tmp = zeros(Float32, sz)
     function fit_fkt(params)
-            tmp = agauss.(pos, params(:i0), Ref(params(:μ)), Ref(params(:σ)), params(:offset)) 
+        sigma = params(:σ)
+        pos = params(:μ)
+        gs = gaussian_sep(sz; all_axes=all_axes, sigma=sigma, pos=pos)
+        tmp .= T(params(:offset)) .+ T(params(:i0)) .* gs 
         return tmp
     end
 
