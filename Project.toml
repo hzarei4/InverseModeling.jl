@@ -1,7 +1,7 @@
 name = "InverseModeling"
 uuid = "ce844058-9528-415d-a63d-06f3dd08b29f"
 authors = ["rheintzmann <heintzmann@gmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
