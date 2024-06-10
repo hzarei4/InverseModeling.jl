@@ -2,6 +2,7 @@ export create_forward, sim_forward, loss, optimize_model
 export get_loss
 export Fixed, Positive, Normalize, ClampSum
 export into_mask!
+export sum!_
 
 # this datatyp specifies that this parameter is not part of the fit
 struct Fixed{T}
@@ -90,7 +91,7 @@ function get_fwd_val(val::ClampSum)
     reshape(vcat(myvals, val.mysum - sum(myvals)), val.mysize)
 end
 
-get_fwd_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id) # do not apply any modifyers here.
+get_fwd_val(val::Fixed, id, fit, non_fit) = getindex(non_fit, id) # do not apply any modifiers here.
 get_fwd_val(val::Positive, id, fit, non_fit) = abs2.(get_fwd_val(val.data, id, fit, non_fit))
 get_fwd_val(val::Normalize, id, fit, non_fit) = get_fwd_val(val.data, id, fit, non_fit) .* val.factor
 function get_fwd_val(val::ClampSum, id, fit, non_fit)
@@ -99,8 +100,11 @@ function get_fwd_val(val::ClampSum, id, fit, non_fit)
     # @show sum(myvals)
     reshape(vcat(myvals, val.mysum - sum(myvals)), val.mysize)
 end
-get_fwd_val(val, id, fit, non_fit) = get_fwd_val(getindex(fit, id))
-
+get_fwd_val(val, id, fit_params, non_fit) = get_fwd_val(@view fit_params[id])
+# begin 
+#     tmp = @view fit_params[id]#  getindex(fit, id)
+#     get_fwd_val(tmp)
+# end
 
 # inverse opterations for the pre-forward model parts
 get_inv_val(val, fct=identity) = fct.(val)
@@ -139,7 +143,7 @@ a tuple of
                 `param` is a named tuple of the result according to the model that the user specified.  
 `stripped_params``: a version of params, with the fixed parameters stripped from all modifications
 """
-function prepare_fit(vals, dtype=Float64)
+function prepare_fit(vals, dtype=Float64)  # 
     fit_dict = Dict() #ComponentArray{dtype}()
     non_fit_dict = Dict() #ComponentArray{dtype}()
     stripped_params = Dict() # removed all modifications from Fixed values
@@ -156,8 +160,8 @@ function prepare_fit(vals, dtype=Float64)
     non_fit_named_tuple = construct_named_tuple(non_fit_dict)
     stripped_params = construct_named_tuple(stripped_params)
     
-    fit_params = ComponentArray(fit_named_tuple)
-    fixed_params = ComponentArray(non_fit_named_tuple)
+    fit_params = ComponentArray{dtype}(fit_named_tuple) # the optim routine cannot deal with tuples
+    fixed_params = ComponentArray{dtype}(non_fit_named_tuple)
 
     function get_fit_results(res)
         # g(id) = get_val(getindex(fit_params, id), id, fit_params, fixed_params) 
@@ -173,7 +177,7 @@ function prepare_fit(vals, dtype=Float64)
 end
 
 """
-    create_forward(fwd, params, dtype=Float64)
+    create_forward(fwd, params)
 
 creates a forward model given a model function `fwd` and a set of parameters `param`.
 The properties such as `Positive` or `Normalize` of the modified `params` are baked into the model
@@ -185,21 +189,28 @@ a tuple of
 `backward`      : the adjoint model
 `get_fit_results`: a function that retrieves the fit result for the result of optim
 """
-function create_forward(fwd, params, dtype=Float64)
-    fit_params, fixed_params, get_fit_results, stripped_params = prepare_fit(params, dtype)
+function create_forward(fwd, params, dtype=Float32) # 
+    fit_params, fixed_params, get_fit_results, stripped_params = prepare_fit(params, dtype) #
 
-    function forward(fit)
+    # can be called with a NamedTuple or a ComponentArray. This will call the fwd function, 
+    # which itself needs to access its one argument by function calls with the ids
+    # fwd(g) which accesses the parameters via g(:myparamname)
+    function forward(fit_params)
         # g(id) = get_val(getindex(stripped_params, id), id, fit, fixed_params) 
-        function g(id) 
+        # g is a function which receives an id and returns the corresponding paramter.
+        # id corresponds to the variable names in a named tuple or ComponentArray
+        function g(id)
             #v = get_fwd_val(stripped_params[id], id, fit, fixed_params) 
             #@show stripped_params[id]
             #@show v
+            # @show id
             #println("params[$(id)] is $(params[id])")
-            get_fwd_val(stripped_params[id], id, fit, fixed_params) 
             #println("$(id) is $(fit[id]) is $v")
             # v
+            # DO NOT PUT @time HERE! This will break Zygote.
+            get_fwd_val(stripped_params[id], id, fit_params, fixed_params) 
         end
-        return fwd(g)
+        return fwd(g) # calls fwd giving it the parameter-access function g
     end
 
     function backward(vals)
@@ -322,3 +333,33 @@ function ChainRulesCore.rrule(::typeof(into_mask!), vec::AbstractArray{T, 1}, am
     return Y, into_mask_pullback
 end
 
+"""
+    sum!_(mymem, accum!, N)
+
+A quick and dirty sum! function which sets mymem first to zero and then calls the `accum!` function.
+A total of N accumulations are executed in place on memory `mymem`.
+
+This function was mainly written to be differentiable via an rrule.
+
+# Arguments
++ `accum!` expects mymem as the first argument and an index `n` as the second.
+
+"""
+function sum!_(mymem, accum!, N)
+    mymem .= zero(eltype(mymem))
+    for n=1:N
+        accum!(mymem, n)
+    end
+    return mymem
+end
+
+function ChainRulesCore.rrule(::typeof(sum!_), mymem, accum!, N)
+    Y = sum!_(mymem, accum!, N)
+    function sum!__pullback(y)
+        @show "pullback"
+        @show size(mymem)
+        @show size(y)
+        return NoTangent(), y .* mymem, NoTangent(), NoTangent()
+    end
+    return Y, sum!__pullback
+end
