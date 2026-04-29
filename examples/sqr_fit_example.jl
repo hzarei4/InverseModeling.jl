@@ -3,7 +3,7 @@ start_val = (σ=Positive([8.0, 25.0]),
         μ=Fixed([1.0, 3.0]) )
 
 times = -10:10
-fit_fkt(params) = (times.*params(:σ)[1]).^2 + (times.*params(:σ)[2]).^3 .+ times .* params(:μ)[1]
+fit_fkt(params)::Vector{Float64} = (times.*params(:σ)[1]).^2 + (times.*params(:σ)[2]).^3 .+ times .* params(:μ)[1]
 
 start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(fit_fkt, start_val)
 meas = forward(start_vals)

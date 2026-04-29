@@ -37,6 +37,7 @@ function show_fit(measured_n, fit)
     return plot_ref
 end
 
+
 function main()
     d = dirname(pathof(InverseModeling)) * Base.Filesystem.path_separator * ".." * Base.Filesystem.path_separator  * "examples"* Base.Filesystem.path_separator
     fn1 = d * "IRF.dat";

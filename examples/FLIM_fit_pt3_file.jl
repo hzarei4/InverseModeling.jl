@@ -1,7 +1,10 @@
-using TimeTags, View5D, NDTools
-using TestImages, MicroscopyTools
+# using TimeTags
+using View5D, NDTools
+using TestImages
+using MicroscopyTools
 using Statistics
 using InverseModeling
+
 
 function main()
     q = read_flim(raw"D:\data\FLIM_data\LSM_15.pt3",  sx = 512, data_channel=2, marker_channel_y=18, is_bidirectional=false);
@@ -30,7 +33,6 @@ function main()
     # @ve res[:amps] res[:τs] 
     @ve res[:amps] 
     res[:τs]
-
 end
 
 """
@@ -62,18 +64,57 @@ function multi_exp(params, I_decay_mem, time_data = reorient(1:0.2f0:10, Val(4))
     # tofit should contain: 
     t0 = params(:t0)
     offset = params(:offset)
-    amps = collect(params(:amps))
-    τs = collect(params(:τs))
+    amps = params(:amps) # collect(params(:amps))
+    τs = params(:τs)
 
     # the line below works, but is quite memory intensive
     # return sum(offset .+ amps .* MicroscopyTools.soft_theta_pw.(time_data, 0.002f0) .* exp.(.-time_data ./ τs), dims=5);
 
-    function accum!(mymem, n)
-        mymem .+= offset .+ amps[:,:,:,:,n] .* MicroscopyTools.soft_theta_pw.(time_data, 0.002f0) .* exp.(.-time_data ./ τs[:,:,:,:,n])
+    function accum!(mymem, n) 
+        @show n
+        mysoft = MicroscopyTools.soft_theta_pw.(time_data, 0.002f0)
+        mymem .+= offset .+ amps[:,:,:,:,n] .* mysoft .* exp.(.-time_data ./ τs[:,:,:,:,n])
     end
     # better version but there are some problems in the pullback ?
     return sum!_(I_decay_mem, accum!, size(amps,5));
 end
+
+function exp_decay(offset, amp, t0, τs, mytime)
+    return offset + amp * MicroscopyTools.soft_theta_pw(mytime, t0) * exp(-mytime / τs)
+end
+
+"""
+    do_fit(to_fit, off_start, amp_start, tau_start; times=0:size(to_fit,4)-1)
+
+performs the fit of `to_fit` with the starting amplitudes `amp_start` and the lifetimes `tau_start`.
+"""
+function do_fit(to_fit, off_start, amp_start, tau_start; times=0.2f0*(0f0:size(to_fit,4)-1), iterations=20, stat=loss_gaussian, bgnoise=2f0)
+    # convolved = (vec) -> conv(multi_exp(vec));
+    # tau_start = mean(tau_start)
+    all_start = (offset=Float32.(off_start), amps=Float32.(amp_start), τs=Positive(Float32.(tau_start)))
+
+    to_fit = Float32.(to_fit)
+    # sz = size(to_fit)
+    times = Float32.(reorient(times[:], Val(4)))
+
+    fwd = (vec) -> multi_exp(vec, times);
+
+    start_vals, fixed_vals, forward, backward, get_fit_results = create_forward(fwd, all_start);
+    @time start_simulation = forward(start_vals);
+
+    myloss = loss(to_fit, forward, stat, bgnoise);
+    # myloss = loss(to_fit, forward, loss_anscombe_pos);
+
+    # optim_res = InverseModeling.optimize(loss(to_fit, forward), start_vals, iterations=0);
+    @time optim_res = optimize_model(myloss, start_vals, iterations=iterations);
+
+    # @show optim_res = Optim.optimize(loss(measured, forward), start_vals, LBFGS())
+    bare, res = get_fit_results(optim_res)
+    fit = forward(bare);
+
+    return bare, res, fit
+end
+
 
 
 """
@@ -99,11 +140,14 @@ function test_lifetime_fitting()
 
     ground_truth_vals, fixed_vals, forward, backward, get_fit_results = create_forward(fwd, fwd_vals, Float32);
     @time simulated = forward(ground_truth_vals);
+    myloss = loss(measured_n, forward)
+    myloss(ground_truth_vals)
 
-    gradient(loss(measured_n, forward), ground_truth_vals)[1] # yields a ComponentVector
+    measured_n = simulated .+ 0.1 .*randn(Float32, sz)
+
+    g = gradient(myloss, ground_truth_vals)[1] # yields a ComponentVector
 
     # @vv simulated
-    measured_n = simulated # .+ 0.1 .*randn(Float32, sz)
     mean_tau = mean(param_tau)
     mean_amp = mean(param_int)
     # use individual dual exponentials with indidual lifetimes
@@ -111,7 +155,7 @@ function test_lifetime_fitting()
     # individual amps
     amp_start = mean_amp .*ones(Float32, sz);
     
-    bare, res, fit = do_fit(measured_n, mean_tau, amp_start; times=times[:], iterations=2);
+    bare, res, fit = do_fit(measured_n, amp_start, tau_start; times=times[:], iterations=2);
     @vt measured_n fit (measured_n .- fit)
     ## lets try to invert this problem:
 end
